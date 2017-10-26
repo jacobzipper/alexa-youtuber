@@ -38,23 +38,24 @@ var stateHandlers = {
                 if (data) {
                     var id = data.substring(data.indexOf("/watch?v=")+9,data.indexOf("/watch?v=")+20);
                     console.log(id);
-                    getURL("https://youtube.com/watch?v="+id,function(res) {
-                        var hash = crypto.createHash('md5').update(res.title).digest('hex');
-                        var found = false;
-                        client.list({},function(err, data){
-                            for(var i = 0; i < data["Contents"].length; i++) {
-                                if (data["Contents"][i]["Key"]==hash+".mp3") {
-                                    console.log("found");
-                                    found = true;
-                                    break;
-                                }
+                    var url = "https://youtube.com/watch?v="+id;
+                    var hash = crypto.createHash('md5').update(url).digest('hex');
+                    var found = false;
+                    client.list({},function(err, data){
+                        for(var i = 0; i < data["Contents"].length; i++) {
+                            if (data["Contents"][i]["Key"]==hash+".mp3") {
+                                console.log("found");
+                                found = true;
+                                break;
                             }
-                            if(found) {
-                                audioData.url = "https://s3.amazonaws.com/youtuberzipper/"+hash+".mp3";
-                                console.log(audioData.url);
-                                ye.emit('PlayAudio');
-                            }
-                            else {
+                        }
+                        if(found) {
+                            audioData.url = "https://s3.amazonaws.com/youtuberzipper/"+hash+".mp3";
+                            console.log(audioData.url);
+                            ye.emit('PlayAudio');
+                        }
+                        else {
+                            getURL(url,function(res) {
                                 http.get(res.url, function(result){
                                     var headers = {
                                           'Content-Length': result.headers['content-length']
@@ -65,19 +66,6 @@ var stateHandlers = {
                                         console.log(audioData.url);
                                         ye.emit('PlayAudio');
                                     });
-                                });
-                            }
-                        });
-                        if(!found) {
-                            http.get(res.url, function(result){
-                                var headers = {
-                                      'Content-Length': result.headers['content-length']
-                                    , 'Content-Type': result.headers['content-type']
-                                };
-                                client.putStream(result, '/'+hash+'.mp3', headers, function(err, res){
-                                    audioData.url = "https://s3.amazonaws.com/youtuberzipper/"+hash+".mp3";
-                                    console.log(audioData.url);
-                                    ye.emit('PlayAudio');
                                 });
                             });
                         }
@@ -110,7 +98,7 @@ var stateHandlers = {
         this.response.speak(this.t('CAN_NOT_SKIP_MSG'));
         this.emit(':responseReady');
     },
-    'AMAZON.PreviousIntent': function () { 
+    'AMAZON.PreviousIntent': function () {
         this.response.speak(this.t('CAN_NOT_SKIP_MSG'));
         this.emit(':responseReady');
     },
@@ -125,7 +113,7 @@ var stateHandlers = {
     'AMAZON.LoopOffIntent':    function () { this.emit('AMAZON.StartOverIntent');},
     'AMAZON.ShuffleOnIntent':  function () { this.emit('AMAZON.StartOverIntent');},
     'AMAZON.ShuffleOffIntent': function () { this.emit('AMAZON.StartOverIntent');},
-    'AMAZON.StartOverIntent':  function () { 
+    'AMAZON.StartOverIntent':  function () {
         this.response.speak(this.t('NOT_POSSIBLE_MSG'));
         this.emit(':responseReady');
     },
