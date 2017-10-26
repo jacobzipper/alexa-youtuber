@@ -39,7 +39,7 @@ var stateHandlers = {
                     var id = data.substring(data.indexOf("/watch?v=")+9,data.indexOf("/watch?v=")+20);
                     console.log(id);
                     getURL("https://youtube.com/watch?v="+id,function(res) {
-                        var hash = crypto.createHash('md5').update(details.title).digest('hex');
+                        var hash = crypto.createHash('md5').update(res.title).digest('hex');
                         var found = false;
                         client.list({},function(err, data){
                             for(var i = 0; i < data["Contents"].length; i++) {
@@ -53,6 +53,19 @@ var stateHandlers = {
                                 audioData.url = "https://s3.amazonaws.com/youtuberzipper/"+hash+".mp3";
                                 console.log(audioData.url);
                                 ye.emit('PlayAudio');
+                            }
+                            else {
+                                http.get(res.url, function(result){
+                                    var headers = {
+                                          'Content-Length': result.headers['content-length']
+                                        , 'Content-Type': result.headers['content-type']
+                                    };
+                                    client.putStream(result, '/'+hash+'.mp3', headers, function(err, res){
+                                        audioData.url = "https://s3.amazonaws.com/youtuberzipper/"+hash+".mp3";
+                                        console.log(audioData.url);
+                                        ye.emit('PlayAudio');
+                                    });
+                                });
                             }
                         });
                         if(!found) {
