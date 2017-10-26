@@ -5,6 +5,7 @@ var constants = require('./constants');
 var request = require('request');
 var linkfinder = require('./youtube/lib/linkfinder');
 var knox = require('knox');
+var crypto = require('crypto');
 var client = knox.createClient({
     key: process.env.aws_key
   , secret: process.env.aws_secret
@@ -17,7 +18,7 @@ var getURL = function (input,callback) {
     var detailsfunc = input.search(/https?:\/\//) == 0 ? linkfinder.getLink : linkfinder.find;
     detailsfunc(input, function (error, details) {
         if (error) return "";
-	return callback(details.url);
+	return callback(details);
     });
 };
 var audioData = {
@@ -38,18 +39,35 @@ var stateHandlers = {
                     var id = data.substring(data.indexOf("/watch?v=")+9,data.indexOf("/watch?v=")+20);
                     console.log(id);
                     getURL("https://youtube.com/watch?v="+id,function(res) {
-                        http.get(res, function(result){
-                            var headers = {
-                                  'Content-Length': result.headers['content-length']
-                                , 'Content-Type': result.headers['content-type']
-                            };
-                            var random = Math.floor(Math.random()*10000000000)+""+Math.floor(Math.random()*10000000000)+""+Math.floor(Math.random()*10000000000)+"";
-                            client.putStream(result, '/'+random+'.mp3', headers, function(err, res){
-                                audioData.url = "https://s3.amazonaws.com/youtuberzipper/"+random+".mp3";
+                        var hash = crypto.createHash('md5').update(details.title).digest('hex');
+                        var found = false;
+                        client.list({},function(err, data){
+                            for(var i = 0; i < data["Contents"].length; i++) {
+                                if (data["Contents"][i]["Key"]==hash+".mp3") {
+                                    console.log("found");
+                                    found = true;
+                                    break;
+                                }
+                            }
+                            if(found) {
+                                audioData.url = "https://s3.amazonaws.com/youtuberzipper/"+hash+".mp3";
                                 console.log(audioData.url);
                                 ye.emit('PlayAudio');
-                            });
+                            }
                         });
+                        if(!found) {
+                            http.get(res.url, function(result){
+                                var headers = {
+                                      'Content-Length': result.headers['content-length']
+                                    , 'Content-Type': result.headers['content-type']
+                                };
+                                client.putStream(result, '/'+hash+'.mp3', headers, function(err, res){
+                                    audioData.url = "https://s3.amazonaws.com/youtuberzipper/"+hash+".mp3";
+                                    console.log(audioData.url);
+                                    ye.emit('PlayAudio');
+                                });
+                            });
+                        }
                     });
                 }
             });
