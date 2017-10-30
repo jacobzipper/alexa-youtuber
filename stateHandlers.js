@@ -6,6 +6,8 @@ var request = require('request');
 var linkfinder = require('./youtube/lib/linkfinder');
 var knox = require('knox');
 var crypto = require('crypto');
+var songs = [];
+var cursor = 0;
 var client = knox.createClient({
     key: process.env.aws_key
   , secret: process.env.aws_secret
@@ -51,6 +53,7 @@ var stateHandlers = {
                         }
                         if(found) {
                             audioData.url = "https://s3.amazonaws.com/youtuberzipper/"+hash+".mp3";
+                            songs.push("https://s3.amazonaws.com/youtuberzipper/"+hash+".mp3");
                             console.log(audioData.url);
                             ye.emit('PlayAudio');
                         }
@@ -74,9 +77,62 @@ var stateHandlers = {
             });
         }
     },
+    'QueueVideoIntent': function () {
+        var slotVal = isSlotValid(this.event.request,"vid");
+        var ye = this;
+        if(slotVal == null) {
+            this.emit(":tell","you fucked up");
+        }
+        else {
+            console.log(slotVal);
+            request('https://youtube.com/results?search_query='+slotVal,function(err,resp,data){
+                if (data) {
+                    var id = data.substring(data.indexOf("/watch?v=")+9,data.indexOf("/watch?v=")+20);
+                    console.log(id);
+                    var url = "https://youtube.com/watch?v="+id;
+                    var hash = crypto.createHash('md5').update(url).digest('hex');
+                    var found = false;
+                    client.list({},function(err, data){
+                        for(var i = 0; i < data["Contents"].length; i++) {
+                            if (data["Contents"][i]["Key"]==hash+".mp3") {
+                                console.log("found");
+                                found = true;
+                                break;
+                            }
+                        }
+                        if(found) {
+                            audioData.url = "https://s3.amazonaws.com/youtuberzipper/"+hash+".mp3";
+                            songs.push("https://s3.amazonaws.com/youtuberzipper/"+hash+".mp3");
+                            console.log(audioData.url);
+                            ye.response.speak("Added to your queue");
+                            ye.emit(":responseReady");
+                        }
+                        else {
+                            getURL(url,function(res) {
+                                http.get(res.url, function(result){
+                                    var headers = {
+                                          'Content-Length': result.headers['content-length']
+                                        , 'Content-Type': result.headers['content-type']
+                                    };
+                                    client.putStream(result, '/'+hash+'.mp3', headers, function(err, res){
+                                        audioData.url = "https://s3.amazonaws.com/youtuberzipper/"+hash+".mp3";
+                                        console.log(audioData.url);
+                                        ye.response.speak("Added to your queue");
+                                        ye.emit(":responseReady");
+                                    });
+                                });
+                            });
+                        }
+                    });
+                }
+            });
+        }
+    },
     'PlayAudio': function () {
         // play the radio
         controller.play.call(this, this.t('WELCOME_MSG', { skillName: audioData.title } ));
+        cursor++;
+        console.log("played song " + (cursor -1));
     },
     'AMAZON.HelpIntent': function () {
         this.response.listen(this.t('HELP_MSG', { skillName: audioData.title } ));
@@ -95,12 +151,11 @@ var stateHandlers = {
         this.emit(':responseReady');
     },
     'AMAZON.NextIntent': function () {
-        this.response.speak(this.t('CAN_NOT_SKIP_MSG'));
-        this.emit(':responseReady');
+        this.emit('PlayAudio');
     },
     'AMAZON.PreviousIntent': function () {
-        this.response.speak(this.t('CAN_NOT_SKIP_MSG'));
-        this.emit(':responseReady');
+        cursor -= 2;
+        this.emit('PlayAudio');
     },
 
     'AMAZON.PauseIntent':   function () { this.emit('AMAZON.StopIntent'); },
@@ -111,11 +166,20 @@ var stateHandlers = {
 
     'AMAZON.LoopOnIntent':     function () { this.emit('AMAZON.StartOverIntent'); },
     'AMAZON.LoopOffIntent':    function () { this.emit('AMAZON.StartOverIntent');},
-    'AMAZON.ShuffleOnIntent':  function () { this.emit('AMAZON.StartOverIntent');},
-    'AMAZON.ShuffleOffIntent': function () { this.emit('AMAZON.StartOverIntent');},
-    'AMAZON.StartOverIntent':  function () {
+    'AMAZON.ShuffleOnIntent':  function () {
         this.response.speak(this.t('NOT_POSSIBLE_MSG'));
         this.emit(':responseReady');
+    },
+    'AMAZON.ShuffleOffIntent': function () {
+        this.response.speak(this.t('NOT_POSSIBLE_MSG'));
+        this.emit(':responseReady');
+    },
+    'AMAZON.StartOverIntent':  function () {
+        cursor--;
+        this.emit('PlayAudio');
+    },
+    'AudioPlayer.PlaybackFinished': function () {
+        this.emit('PlayAudio');
     },
 
     /*
@@ -136,9 +200,17 @@ var controller = function () {
              *      Resuming audio when stopped/paused.
              *      Next/Previous commands issued.
              */
+            if(cursor < 0) {
+                cursor = 0;
+                this.response.speak("You requested to play a previous song when there are none. I will play the first song in the queue.").audioPlayerPlay('REPLACE_ALL', songs[cursor], songs[cursor], null, 0);
+            }
+            else if(cursor < songs.length) {
+                this.response.speak(text).audioPlayerPlay('REPLACE_ALL', songs[cursor], songs[cursor], null, 0);
+            }
+            else {
+                this.response.speak("There are no more songs in your queue");
 
-
-            this.response.speak(text).audioPlayerPlay('REPLACE_ALL', audioData.url, audioData.url, null, 0);
+            }
             this.emit(':responseReady');
         },
         stop: function (text) {
